@@ -6,7 +6,7 @@
 import numpy as np
 from  torch.utils import data
 import torch
-from deeplearning import  torch as dp
+from deeplearning import  dp_torch as dp
 from torch import nn
 
 true_w = torch.tensor([2, -3.4])

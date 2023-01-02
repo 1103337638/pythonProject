@@ -1,4 +1,4 @@
-from deeplearning import torch as dp
+from deeplearning import dp_torch as dp
 import torch
 import  matplotlib.pyplot as plt
 import random

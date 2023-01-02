@@ -7,7 +7,7 @@ import random
 import torch
 import os
 import pandas as pd
-from deeplearning import  torch
+from deeplearning import  dp_torch
 import numpy as np
 def f(x):
     return 3 * x ** 2 - 4 * x
@@ -20,7 +20,7 @@ def f(x):
 # 放弃了找来找去发现不能显示为svg
 x = np.arange(0, 3, 0.1)
 print(f(x))
-torch.plot(x, [f(x), 2 * x - 3], 'x', 'f(x)', legend=['f(x)', 'Tangent line (x=1)'] )
+dp_torch.plot(x, [f(x), 2 * x - 3], 'x', 'f(x)', legend=['f(x)', 'Tangent line (x=1)'])
 
 
 

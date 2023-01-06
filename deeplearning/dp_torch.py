@@ -6,6 +6,8 @@ import torch
 import torchvision
 from torch.utils import data
 from torchvision import transforms
+
+from torch import nn
 def set_figsize(figsize=(3.5, 2.5)):  #@save
     """设置matplotlib的图表大小"""
     plt.rcParams['figure.figsize'] = figsize
@@ -64,24 +66,28 @@ class Timer:  #@save
     """记录多次运行时间"""
     def __init__(self):
         self.times = []
-        self.start
+        self.start()
 
     def start(self):
-        """记录开始"""
-        self.tik=time.time()
+        """启动计时器"""
+        self.tik = time.time()
 
     def stop(self):
-        self.times.append(time.time()-self.tik)
-        return  self.time[-1]
+        """停止计时器并将时间记录在列表中"""
+        self.times.append(time.time() - self.tik)
+        return self.times[-1]
+
     def avg(self):
-        return sum(self.times)/len(self.times)
+        """返回平均时间"""
+        return sum(self.times) / len(self.times)
 
     def sum(self):
-        return   sum(self.times)
+        """返回时间总和"""
+        return sum(self.times)
 
     def cumsum(self):
+        """返回累计时间"""
         return np.array(self.times).cumsum().tolist()
-
 
 def synthetic_data(w, b, num_example):
     x = torch.normal(0, 1, (num_example, len(w)))
@@ -274,3 +280,101 @@ def train_ch3(net, train_iter, test_iter, loss, num_epochs, updater):  #@save
     assert train_loss < 0.5, train_loss
     assert train_acc <= 1 and train_acc > 0.7, train_acc
     assert test_acc <= 1 and test_acc > 0.7, test_acc
+#终于理解了训练集，测试集，验证集， 训练集是训练模型，测试集，其实就是平常的test，我们根据test的结果来不断调整参数，使其达到测试效果最好，但有时测试效果最好可能会
+#选择的模型或者超参数过于拟合测试集，所以又需要有验证集，看看是否过拟合
+
+def evaluate_loss(net, data_iter, loss):  #@save
+    """评估给定数据集上模型的损失"""
+    metric = Accumulator(2)  # 损失的总和,样本数量
+    for X, y in data_iter:
+        out = net(X)
+        y = y.reshape(out.shape)
+        l = loss(out, y)
+        metric.add(l.sum(), l.numel())
+    return metric[0] / metric[1]
+
+
+
+def corr2d(X, K):
+    "计算二维互相关运算"
+    h, w = K.shape
+    Y = torch.zeros((X.shape[0]- h + 1), X.shape[1] - w + 1)
+    for i in  range(Y.shape[0]):
+        for j in range(Y.shape[1]):
+            Y[i, j]=(X[i:i+h, j:j+w] * K).sum()
+    return Y
+
+def try_gpu(i=0):  #@save
+    """如果存在，则返回gpu(i)，否则返回cpu()"""
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('mps')
+
+def try_all_gpus():  #@save
+    """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]"""
+    devices = [torch.device(f'cuda:{i}')
+             for i in range(torch.cuda.device_count())]
+    return devices if devices else [torch.device('mps')]
+
+def evaluate_accuracy_gpu(net, data_iter, device=None): #@save
+    """使用GPU计算模型在数据集上的精度"""
+    if isinstance(net, nn.Module):
+        net.eval()  # 设置为评估模式
+        if not device:
+            device = next(iter(net.parameters())).device
+    # 正确预测的数量，总预测的数量
+    metric = Accumulator(2)
+    with torch.no_grad():
+        for X, y in data_iter:
+            if isinstance(X, list):
+                # BERT微调所需的（之后将介绍）
+                X = [x.to(device) for x in X]
+            else:
+                X = X.to(device)
+            y = y.to(device)
+            metric.add(accuracy(net(X), y), y.numel())
+    return metric[0] / metric[1]
+
+
+
+#@save
+def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
+    """用GPU训练模型(在第六章定义)"""
+    def init_weights(m):
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            nn.init.xavier_uniform_(m.weight)#这里用了数值稳定性和模型初始化
+    net.apply(init_weights)
+    print('training on', device)
+    net.to(device)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr)
+    loss = nn.CrossEntropyLoss()
+    animator = Animator(xlabel='epoch', xlim=[1, num_epochs],
+                            legend=['train loss', 'train acc', 'test acc'])
+    timer, num_batches = Timer(), len(train_iter)
+    for epoch in range(num_epochs):
+        # 训练损失之和，训练准确率之和，样本数
+        metric = Accumulator(3)
+        net.train()
+        for i, (X, y) in enumerate(train_iter):
+            timer.start()
+            optimizer.zero_grad()
+            X, y = X.to(device), y.to(device)
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            l.backward()
+            optimizer.step()
+            with torch.no_grad():
+                metric.add(l * X.shape[0], accuracy(y_hat, y), X.shape[0])
+            timer.stop()
+            train_l = metric[0] / metric[2]
+            train_acc = metric[1] / metric[2]
+            if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:#"//"这个应该是先做除法，然后向下取整
+                animator.add(epoch + (i + 1) / num_batches,
+                             (train_l, train_acc, None))
+        test_acc = evaluate_accuracy_gpu(net, test_iter)
+        animator.add(epoch + 1, (None, None, test_acc))
+    plt.show()
+    print(f'loss {train_l:.3f}, train acc {train_acc:.3f}, '
+          f'test acc {test_acc:.3f}')
+    print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
+          f'on {str(device)}')

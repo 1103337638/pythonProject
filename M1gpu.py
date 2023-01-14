@@ -3,10 +3,13 @@ import torchvision
 
 torch.version
 import torch
-device = torch.device("mps")
-print(torch.cuda.is_available())
-x = torch.randn(128, 128, device=device)
-net = torchvision.models.resnet18().to(device)
+X= torch.arange(24 ,dtype=float)
+X=X.reshape(2,3,4)
+print(X)
+mean = X.mean(dim=(0,2),keepdim=True)
+print(mean)
 
-print(x.device)
-print(next(net.parameters()).device)
+Y=torch.arange(12, dtype=float)
+Y=Y.reshape(3, 4)
+mean = Y.mean(dim=0, keepdim=True)
+print(mean)
